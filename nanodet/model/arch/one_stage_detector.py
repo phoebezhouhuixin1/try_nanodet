@@ -5,7 +5,6 @@ from ..backbone import build_backbone
 from ..fpn import build_fpn
 from ..head import build_head
 
-
 class OneStageDetector(nn.Module):
     def __init__(self,
                  backbone_cfg,

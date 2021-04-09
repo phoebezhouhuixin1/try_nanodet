@@ -28,6 +28,7 @@ class Trainer:
         num_gpu = len(gpu_ids)
         batch_sizes = [batch_per_gpu for i in range(num_gpu)]
         self.logger.log('Training batch size: {}'.format(batch_per_gpu*num_gpu))
+        self.logger.log('Batch sizes: {}'.format(batch_sizes))
         self.model = DataParallel(self.model, gpu_ids, chunk_sizes=batch_sizes).to(device)
 
     def _init_optimizer(self):

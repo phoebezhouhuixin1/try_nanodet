@@ -367,7 +367,8 @@ class CfgNode(dict):
     @classmethod
     def _load_cfg_from_yaml_str(cls, str_obj):
         """Load a config from a YAML string encoding."""
-        cfg_as_dict = yaml.safe_load(str_obj)
+        # cfg_as_dict = yaml.safe_load(str_obj)
+        cfg_as_dict = yaml.load(str_obj, Loader=yaml.Loader)
         return cls(cfg_as_dict)
 
     @classmethod

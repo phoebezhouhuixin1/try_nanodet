@@ -42,15 +42,18 @@ class DataParallel(Module):
     def __init__(self, module, device_ids=None, output_device=None, dim=0, chunk_sizes=None):
         super(DataParallel, self).__init__()
 
-        if not torch.cuda.is_available():
+        # if not torch.cuda.is_available():
+        if len(device_ids) == 0:
             self.module = module
             self.device_ids = []
             return
 
         if device_ids is None:
             device_ids = list(range(torch.cuda.device_count()))
+            print("DEVICE IDS IS", device_ids)
         if output_device is None:
             output_device = device_ids[0]
+            
         self.dim = dim
         self.module = module
         self.device_ids = device_ids

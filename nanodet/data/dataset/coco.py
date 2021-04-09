@@ -39,7 +39,8 @@ class CocoDataset(BaseDataset):
         width = img_info['width']
         id = img_info['id']
         if not isinstance(id, int):
-            raise TypeError('Image id must be int.')
+            print("Image id must be an int (but why)?")
+            # raise TypeError('Image id must be int.')
         info = {'file_name': file_name,
                 'height': height,
                 'width': width,
