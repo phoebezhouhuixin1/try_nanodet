@@ -22,7 +22,7 @@ PyTorch should be installed. TorchVision is also required since we will be using
 * `pip install -r requirements.txt`
 * `python setup.py develop`
 * `conda install tensorboard==1.15.0` (tensorflow will be upgraded to 1.15.0 as well though we are using pytorch)
-* Download Pytorch COCO weights (nanodet-m.pth has input shape 416x416?? or is it 320x320): https://drive.google.com/file/d/1EhMqGozKfqEfw8y9ftbi1jhYu86XoW62/view
+* Download Pytorch COCO weights (nanodet-m.pth has input shape  320x320): https://drive.google.com/file/d/1EhMqGozKfqEfw8y9ftbi1jhYu86XoW62/view
 
 
 

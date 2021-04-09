@@ -75,8 +75,8 @@ def train(args):
             torch.backends.cudnn.enabled = True
             torch.backends.cudnn.benchmark = True
     else:
-        cfg.device.gpu_ids = []# None # TODO: THERE IS NO SUPPORT FOR CPU TRAINING IN NANODET. 
-        # NEED TO OVERWRITE nanodet/trainer/__init__.py AND tools/train.py
+        cfg.device.gpu_ids = [] # TODO: THERE IS NO SUPPORT FOR CPU TRAINING IN NANODET. 
+        # NEED TO OVERWRITE the build_trainer() function in nanodet/trainer/__init__.py AND tools/train.py
         # Will do that below :(
         batch_size = args.batch_size
     
@@ -131,15 +131,21 @@ def train(args):
         val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=collate_function, drop_last=True)
         print("CPU DATALOADER")
 
-    if len(cfg.device.gpu_ids) > 1:
+    if len(cfg.device.gpu_ids) > 1: # distributed trainer for multi gpu training
         print("GPU IDS (cuda)", cfg.device.gpu_ids)
         trainer = DistTrainer(args.local_rank, cfg, model, logger)
         trainer.set_device(cfg.device.batchsize_per_gpu, rank, device=torch.device('cuda'))  
     else:
         print("GPU IDS (cpu)", cfg.device.gpu_ids)
         trainer = Trainer(args.local_rank, cfg, model, logger)
+    if hasattr(args, "use_gpu") and args.use_gpu:
+        trainer.set_device(cfg.device.batchsize_per_gpu, rank, device=torch.device('cuda')) 
+    else
         # trainer.set_device(batch_size, cfg.device.gpu_ids, device=torch.device('cpu'))
         trainer.model = DataParallel(model, cfg.device.gpu_ids).to("cpu")
+        # TODO: CPU TRAINING IS NOT SUPPORTED. 
+        # RuntimeError: Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
+        # See Trainer class for details.
 
     if 'load_model' in cfg.schedule:
         trainer.load_model(cfg)
@@ -159,8 +165,8 @@ if __name__ == "__main__":
     args.project_dir = r"C:\Users\Phoebe\Desktop\kangaroo_only"
     args.base_model = "base:nanodet"
     args.model_name = "nanodetmodel"
-    args.use_gpu = False # specify args.batch_size if False.
-    args.batch_size = 2
+    args.use_gpu = True # specify args.batch_size if False.
+    # args.batch_size = 2
     args.autoslice = False
     args.epochs = 4
     train(args)

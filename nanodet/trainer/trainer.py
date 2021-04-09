@@ -83,7 +83,6 @@ class Trainer:
         for iter_id, meta in enumerate(data_loader):
             if iter_id >= num_iters:
                 break
-            meta['img'] = meta['img'].to(device=torch.device('cuda'), non_blocking=True)
             output, loss, loss_stats = self.run_step(model, meta, mode)
             if mode == 'val' or mode == 'test':
                 dets = model.module.head.post_process(output, meta)
@@ -193,7 +192,8 @@ class Trainer:
                 lr = self.get_warmup_lr(cur_iter)
                 for param_group in self.optimizer.param_groups:
                     param_group['lr'] = lr
-                batch['img'] = batch['img'].to(device=torch.device('cuda'), non_blocking=True)
+                batch['img'] = batch['img']#.to(device=torch.device('cuda'), non_blocking=True)
+                # TODO: Want to use cpu, but RuntimeError: Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
                 output, loss, loss_stats = self.run_step(model, batch)
 
                 # TODO: simplify code
