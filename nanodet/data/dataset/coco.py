@@ -25,7 +25,7 @@ class CocoDataset(BaseDataset):
         ]
         """
         self.coco_api = COCO(ann_path)
-        self.cat_ids = sorted(self.coco_api.getCatIds())
+        self.cat_ids = sorted(self.coco_api.getCatIds()) # integer array
         self.cat2label = {cat_id: i for i, cat_id in enumerate(self.cat_ids)}
         self.cats = self.coco_api.loadCats(self.cat_ids)
         self.img_ids = sorted(self.coco_api.imgs.keys())
@@ -38,8 +38,8 @@ class CocoDataset(BaseDataset):
         height = img_info['height']
         width = img_info['width']
         id = img_info['id']
-        if not isinstance(id, int):
-            print("Image id must be an int (but why)?")
+        # if not isinstance(id, int):
+            # print("Image id must be an int (but why)?")
             # raise TypeError('Image id must be int.')
         info = {'file_name': file_name,
                 'height': height,
@@ -128,12 +128,12 @@ class CocoDataset(BaseDataset):
         meta = self.pipeline(meta, self.input_size)
         meta['img'] = torch.from_numpy(meta['img'].transpose(2, 0, 1)) 
         
-        for k in meta.keys():
-            print(k, type(meta[k]))
-            try:
-                print(meta[k].shape)
-            except:
-                pass
+        # for k in meta.keys():
+        #     print(k, type(meta[k]))
+        #     try:
+        #         print(meta[k].shape)
+        #     except:
+        #         pass
         return meta
 
     def get_val_data(self, idx):

@@ -36,5 +36,5 @@ class DistTrainer(Trainer):
         """
         self.rank = rank
         self.model = DDP(batch_per_gpu, module=self.model.cuda(), device_ids=[rank], output_device=rank)
-
+        self.device = torch.device("cuda")
 

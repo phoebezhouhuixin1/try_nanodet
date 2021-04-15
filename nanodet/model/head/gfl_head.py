@@ -84,6 +84,7 @@ class GFLHead(nn.Module):
                  num_classes,
                  loss,
                  input_channel,
+                 nms_thresh_test = 0.6,
                  feat_channels=256,
                  stacked_convs=4,
                  octave_base_scale=4,
@@ -100,6 +101,7 @@ class GFLHead(nn.Module):
         self.grid_cell_scale = octave_base_scale
         self.strides = strides
         self.reg_max = reg_max
+        self.nms_thresh_test = nms_thresh_test
 
         self.loss_cfg = loss
         self.conv_cfg = conv_cfg
@@ -545,7 +547,7 @@ class GFLHead(nn.Module):
             mlvl_bboxes,
             mlvl_scores,
             score_thr=0.05,
-            nms_cfg=dict(type='nms', iou_threshold=0.6),
+            nms_cfg=dict(type='nms', iou_threshold=self.nms_thresh_test),
             max_num=100)
         return det_bboxes, det_labels
 

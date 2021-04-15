@@ -7,6 +7,8 @@ from nanodet.util import cfg, load_config, Logger
 from nanodet.model.arch import build_model
 from nanodet.util import load_model_weight
 from nanodet.data.transform import Pipeline
+from nanodet.data.dataset import build_dataset
+from voc2coco import voc2coco
 
 image_ext = ['.jpg', '.jpeg', '.webp', '.bmp', '.png']
 video_ext = ['mp4', 'mov', 'avi', 'mkv']
@@ -60,7 +62,7 @@ class Predictor(object):
             results = self.model.inference(meta)
         return meta, results
 
-    def visualize(self, dets, meta, class_names, score_thres, wait=0):
+    def visualize(self, dets, meta, class_names, score_thres, wait=0, show = True):
         time1 = time.time()
         result_img = self.model.head.show_result(meta['raw_img'], dets, class_names, score_thres=score_thres, show=True)
         print('viz time: {:.3f}s'.format(time.time()-time1))
@@ -84,9 +86,19 @@ def main():
     torch.backends.cudnn.benchmark = True
 
     load_config(cfg, args.config)
+    cfg.defrost()
+    cfg.data.val.img_path = args.path
+    labels_ids = list(range(1, len(cfg.class_names)+1))
+    label2id = dict(zip(cfg.class_names, labels_ids))
+    test_annots_path = os.path.join(args.path, "test_annots.json")
+    voc2coco(args.path, label2id, test_annots_path)
+    cfg.data.val.ann_path = test_annots_path
+    test_dataset = build_dataset(cfg.data.val, 'test')
+    from nanodet.evaluator.coco_detection import CocoDetectionEvaluator
+    evaluator = CocoDetectionEvaluator(test_dataset, score_thresh_test=0.3)
     logger = Logger(-1, use_tensorboard=False)
     predictor = Predictor(cfg, args.model, logger, device='cuda:0')
-    logger.log('Press "Esc", "q" or "Q" to exit.')
+    # logger.log('Press "Esc", "q" or "Q" to exit.')
     current_time = time.localtime()
     if args.demo == 'image':
         if os.path.isdir(args.path):
@@ -94,18 +106,22 @@ def main():
         else:
             files = [args.path]
         files.sort()
+        results = {}
         for image_name in files:
             meta, res = predictor.inference(image_name)
-            result_image = predictor.visualize(res, meta, cfg.class_names, 0.35)
+            results[os.path.splitext(os.path.basename(image_name))[0]] = res
+            result_image = predictor.visualize(res, meta, cfg.class_names, 0.7, show = False)
             if args.save_result:
                 save_folder = os.path.join(cfg.save_dir, time.strftime("%Y_%m_%d_%H_%M_%S", current_time))
                 if not os.path.exists(save_folder):
                     os.mkdir(save_folder)
                 save_file_name = os.path.join(save_folder, os.path.basename(image_name))
                 cv2.imwrite(save_file_name, result_image)
-            ch = cv2.waitKey(0)
-            if ch == 27 or ch == ord('q') or ch == ord('Q'):
-                break
+            # ch = cv2.waitKey(0)
+            # if ch == 27 or ch == ord('q') or ch == ord('Q'):
+            #     break
+        results_json = evaluator.results2json(results)
+        print("RESULTS JSON", results_json)
     elif args.demo == 'video' or args.demo == 'webcam':
         cap = cv2.VideoCapture(args.path if args.demo == 'video' else args.camid)
         width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)  # float
@@ -133,3 +149,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+# python demo\demo.py "image" --config=C:\Users\Phoebe\Desktop\kangaroo_only\models\nanodetmodel_train_config.yaml --model=C:\Users\Phoebe\Desktop\kangaroo_only\models\nanodetmodel.pth --path=C:\Users\Phoebe\Desktop\kangaroo_only\validate --save_result

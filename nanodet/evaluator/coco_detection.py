@@ -20,11 +20,12 @@ def xyxy2xywh(bbox):
 
 
 class CocoDetectionEvaluator:
-    def __init__(self, dataset):
+    def __init__(self, dataset, score_thresh_test=0.05):
         assert hasattr(dataset, 'coco_api')
         self.coco_api = dataset.coco_api
         self.cat_ids = dataset.cat_ids
         self.metric_names = ['mAP', 'AP_50', 'AP_75', 'AP_small', 'AP_m', 'AP_l']
+        self.score_thresh_test =score_thresh_test
 
     def results2json(self, results):
         """
@@ -40,8 +41,10 @@ class CocoDetectionEvaluator:
                 category_id = self.cat_ids[label]
                 for bbox in bboxes:
                     score = float(bbox[4])
+                    if score<self.score_thresh_test:
+                        continue
                     detection = dict(
-                        image_id=int(image_id),
+                        image_id=image_id, #=int(image_id),
                         category_id=int(category_id),
                         bbox=xyxy2xywh(bbox),
                         score=score)

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import yaml
 import os
 import datetime
-
+import shutil
 
 import os
 import torch
@@ -14,16 +14,13 @@ import argparse
 import numpy as np
 import torch.distributed as dist
 
-from nanodet.util import mkdir, Logger, cfg, load_config, DataParallel
+from nanodet.util import mkdir, Logger, cfg, load_config, DataParallel, load_model_weight
 from nanodet.trainer.trainer import Trainer
 from nanodet.trainer.dist_trainer import DistTrainer 
 from nanodet.data.collate import collate_function
 from nanodet.data.dataset import build_dataset
 from nanodet.model.arch import build_model
 from nanodet.evaluator import build_evaluator
-
-
-
 
 def train(args):
     base_dir = args.project_dir
@@ -33,7 +30,7 @@ def train(args):
     timestamp_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     output_path = os.path.join(base_dir, 'models', f'{args.model_name}_training_output', timestamp_str)
     os.makedirs(output_path, exist_ok=True)
-    weights_path = os.path.join(os.getcwd(), r"model\nanodet_m.pth") # TODO: assuming running from videoio directory; change to scripts\nanodet later
+    weights_path = os.path.join(os.getcwd(), r"nanodet\model\nanodet_m.pth") # TODO: assuming running from videoio directory; change to scripts\nanodet later
     cfg_path = os.path.join(os.getcwd(), r"config\nanodet-m.yml") # TODO: assuming running from videoio directory; change to scripts\nanodet later
     # # Slice the images if applicable
     # auto_slice = hasattr(args, 'auto_slice') and args.auto_slice
@@ -63,6 +60,7 @@ def train(args):
     cfg.data.train.ann_path = train_annots_path
     cfg.data.val.img_path = valid_path
     cfg.data.val.ann_path = valid_annots_path
+    cfg.class_names = class_names
     if hasattr(args, "use_gpu") and args.use_gpu:
         import GPUtil
         gpuInfo = GPUtil.getGPUs()
@@ -87,12 +85,14 @@ def train(args):
     args.config = os.path.join(base_dir, 'models',f"{args.model_name}_train_config.yaml")
     stream = open(args.config, 'w')
     yaml.dump(cfg, stream)
+    
     print("DUMPED THE YAML\n")
-    args.seed = 0
-    args.local_rank = -1 # TODO: not sure how to set this for distributed training. What is a rank? What is distributed training
-    # nanodet_train(args)
-
-    # mkdir(args.local_rank, cfg.save_dir)
+    
+    if not hasattr(args, "seed"):
+        args.seed = 0
+    if not hasattr(args, "local_rank"):
+        args.local_rank = -1 # TODO: not sure how to set this for distributed training. What is a rank? What is distributed training
+ 
     logger = Logger(args.local_rank, cfg.save_dir)
     if args.seed is not None:
         logger.log('Set random seed to {}'.format(args.seed))
@@ -105,14 +105,19 @@ def train(args):
                 torch.backends.cudnn.deterministic = True
                 torch.backends.cudnn.benchmark = False
 
-    logger.log('Creating model...')
+    logger.log('Creating model and loading weights...')
     model = build_model(cfg.model)
+    ckpt = torch.load(weights_path, map_location=lambda storage, loc: storage) 
+    load_model_weight(model, ckpt, logger)
 
     logger.log('Setting up data...')
     train_dataset = build_dataset(cfg.data.train, 'train')
     val_dataset = build_dataset(cfg.data.val, 'test')
 
-    if len(cfg.device.gpu_ids) > 1:
+    # Make a Trainer object 
+    if len(cfg.device.gpu_ids) > 1: # distributed trainer for multi gpu training
+        print("GPU IDS (distributed)", cfg.device.gpu_ids)
+        # args.local_rank = TODO
         print('rank = ', args.local_rank)
         num_gpus = torch.cuda.device_count()
         torch.cuda.set_device(args.local_rank % num_gpus)
@@ -122,43 +127,46 @@ def train(args):
                                                        num_workers=cfg.device.workers_per_gpu, pin_memory=True,
                                                        collate_fn=collate_function, sampler=train_sampler,
                                                        drop_last=True)
-        val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1,
+        val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1, # how many num_workers?
                                                  pin_memory=True, collate_fn=collate_function, drop_last=True)
-        print("CUDA DATALOADER")
-    else:
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size= batch_size,
-                                                       shuffle=True, num_workers=0, collate_fn=collate_function, drop_last=True)
-        val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=collate_function, drop_last=True)
-        print("CPU DATALOADER")
-
-    if len(cfg.device.gpu_ids) > 1: # distributed trainer for multi gpu training
-        print("GPU IDS (cuda)", cfg.device.gpu_ids)
         trainer = DistTrainer(args.local_rank, cfg, model, logger)
-        trainer.set_device(cfg.device.batchsize_per_gpu, rank, device=torch.device('cuda'))  
+        # Parallelize the model
+        trainer.set_device(cfg.device.batchsize_per_gpu, args.local_rank, device=torch.device('cuda'))  
+        print("DISTRIBUTED GPU TRAINING")
     else:
-        print("GPU IDS (cpu)", cfg.device.gpu_ids)
-        trainer = Trainer(args.local_rank, cfg, model, logger)
-    if hasattr(args, "use_gpu") and args.use_gpu:
-        trainer.set_device(cfg.device.batchsize_per_gpu, rank, device=torch.device('cuda')) 
-    else
-        # trainer.set_device(batch_size, cfg.device.gpu_ids, device=torch.device('cpu'))
-        trainer.model = DataParallel(model, cfg.device.gpu_ids).to("cpu")
-        # TODO: CPU TRAINING IS NOT SUPPORTED. 
-        # RuntimeError: Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
-        # See Trainer class for details.
+        print("GPU IDS (not distributed)", cfg.device.gpu_ids)
+        trainer = Trainer(-1, cfg, model, logger)
+        if hasattr(args, "use_gpu") and args.use_gpu:
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=cfg.device.batchsize_per_gpu,
+                                                       num_workers=cfg.device.workers_per_gpu, pin_memory=True,
+                                                       collate_fn=collate_function, drop_last=True)
+            val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1, # how many num_workers?
+                                                    pin_memory=True, collate_fn=collate_function, drop_last=True)
+            trainer.set_device(cfg.device.batchsize_per_gpu, cfg.device.gpu_ids, device=torch.device('cuda')) 
+            print("NON-DISTRIBUTED GPU TRAINING")
+        else:
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size= batch_size,
+                                                        shuffle=True, num_workers=0, collate_fn=collate_function, drop_last=True)
+            val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=collate_function, drop_last=True)
+            print("CPU TRAINING")
+            # TODO: CPU TRAINING IS NOT SUPPORTED. 
+            # RuntimeError: Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
+            # See Trainer class for details.
 
     if 'load_model' in cfg.schedule:
-        trainer.load_model(cfg)
+        trainer.load_model(cfg) # load the model state dict only
     if 'resume' in cfg.schedule:
-        trainer.resume(cfg)
+        trainer.resume(cfg) # load model state dict and optimizer state dict for continuing training from a certain epoch
 
     # print(trainer.__dict__)
-    evaluator = build_evaluator(cfg, val_dataset)
+    evaluator = build_evaluator(cfg, val_dataset, score_thresh_test = 0.05)
 
     logger.log('Starting training...')
     print("torch.cuda.is_available()? ", torch.cuda.is_available())
     trainer.run(train_dataloader, val_dataloader, evaluator)
 
+    # Shutil the model state dict to the models/ directory so that we can use it for inference phase later
+    shutil.copy(os.path.join(cfg.save_dir, "model_best", "model_best.pth"), os.path.join(base_dir, "models", f"{args.model_name}.pth"))
 
 if __name__ == "__main__":
     args = SimpleNamespace()
@@ -168,7 +176,7 @@ if __name__ == "__main__":
     args.use_gpu = True # specify args.batch_size if False.
     # args.batch_size = 2
     args.autoslice = False
-    args.epochs = 4
+    args.epochs = 10
     train(args)
     
 

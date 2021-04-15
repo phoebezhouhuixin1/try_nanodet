@@ -17,20 +17,27 @@ class Trainer:
         self._init_optimizer()
         self._iter = 1
         self.epoch = 1
+        if len(cfg.device.gpu_ids)!= 0:
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+        self.model.device = self.device # for one_stage_detector.py,in order to
+        # ensure that the input data and the weights tensors are in the same device (torch.cuda.FloatTensor in the case of GPU training)
 
     def set_device(self, batch_per_gpu, gpu_ids, device):
         """
-        Set model device to GPU.
+        Parallelize the model on GPU of ID `device`.
         :param batch_per_gpu: batch size of each gpu
         :param gpu_ids: a list of gpu ids
         :param device: cuda
         """
+        self.device = device
         num_gpu = len(gpu_ids)
         batch_sizes = [batch_per_gpu for i in range(num_gpu)]
         self.logger.log('Training batch size: {}'.format(batch_per_gpu*num_gpu))
         self.logger.log('Batch sizes: {}'.format(batch_sizes))
         self.model = DataParallel(self.model, gpu_ids, chunk_sizes=batch_sizes).to(device)
-
+        
     def _init_optimizer(self):
         optimizer_cfg = copy.deepcopy(self.cfg.schedule.optimizer)
         name = optimizer_cfg.pop('name')
@@ -51,6 +58,7 @@ class Trainer:
         :param mode: train or val or test
         :return: result, total loss and a dict of all losses
         """
+        print(f"RUN STEP; MODE = {mode} ; META = {[k for k in meta.keys()]}")
         output, loss, loss_dict = model.module.forward_train(meta)
         loss = loss.mean()
         if mode == 'train':
@@ -69,12 +77,12 @@ class Trainer:
         """
         model = self.model
         if mode == 'train':
-            model.train()
+            model.train() # set the model to training mode
             if self.rank > -1:  # Using distributed training, need to set epoch for sampler
                 self.logger.log("distributed sampler set epoch at {}".format(epoch))
                 data_loader.sampler.set_epoch(epoch)
         else:
-            model.eval()
+            model.eval() # set the model to evaluation mode
             torch.cuda.empty_cache()
         results = {}
         epoch_losses = {}
@@ -86,7 +94,9 @@ class Trainer:
             output, loss, loss_stats = self.run_step(model, meta, mode)
             if mode == 'val' or mode == 'test':
                 dets = model.module.head.post_process(output, meta)
-                results[meta['img_info']['id'].cpu().numpy()[0]] = dets
+                # results[meta['img_info']['id'].cpu().numpy()[0]] = dets
+                for id in meta['img_info']['id']:
+                    results[id] = dets
             for k in loss_stats:
                 if k not in epoch_losses:
                     epoch_losses[k] = AverageMeter(loss_stats[k].mean().item())
@@ -192,8 +202,9 @@ class Trainer:
                 lr = self.get_warmup_lr(cur_iter)
                 for param_group in self.optimizer.param_groups:
                     param_group['lr'] = lr
-                batch['img'] = batch['img']#.to(device=torch.device('cuda'), non_blocking=True)
+                batch['img'] = batch['img'].to(device=self.device, non_blocking = True) #torch.device('cuda'), non_blocking=True)
                 # TODO: Want to use cpu, but RuntimeError: Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
+                # need to not set device to cuda in th  event that cpu is being used - hey i think it works now (need to test)
                 output, loss, loss_stats = self.run_step(model, batch)
 
                 # TODO: simplify code

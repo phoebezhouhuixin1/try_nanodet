@@ -107,6 +107,7 @@ class CfgNode(dict):
 
         # Allow new attributes after initialisation
         self.__dict__[CfgNode.NEW_ALLOWED] = new_allowed
+        print(self.__dict__)
 
     @classmethod
     def _create_config_tree_from_dict(cls, dic, key_list):
